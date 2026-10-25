@@ -1,5 +1,7 @@
 #### 1.4.0-beta.4
 
+* Add WARP entry, exit and combined entry/exit modes
+* Add AmneziaWG transport for WARP
 * Add DNS settings to route profiles
 * Add enable/disable toggle for route rules and a shortcut to the route profile editor
 * Add Ctrl+K command palette for commands and settings

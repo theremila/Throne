@@ -887,11 +887,26 @@ target_link_libraries(Throne PRIVATE
 
 qt_finalize_executable(Throne)
 
-option(THRONE_CONFIG_TESTS "Build the config integration test runner instead of the GUI" OFF)
-enable_testing()
+option(THRONE_CONFIG_TESTS "Build WARP configuration integration tests" OFF)
 if (THRONE_CONFIG_TESTS)
-    set_source_files_properties(src/main.cpp PROPERTIES COMPILE_DEFINITIONS "main=ThroneGuiMain")
-    target_sources(Throne PRIVATE tests/WarpChainTest.cpp)
-    add_test(NAME warp_chain COMMAND Throne)
-    set_tests_properties(warp_chain PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=;QT_STYLE_OVERRIDE=Fusion")
+    enable_testing()
+    set(THRONE_TEST_SOURCES ${PROJECT_SOURCES})
+    list(REMOVE_ITEM THRONE_TEST_SOURCES src/main.cpp)
+    qt_add_executable(ThroneConfigTests MANUAL_FINALIZATION
+            ${THRONE_TEST_SOURCES}
+            ${CMAKE_BINARY_DIR}/translations.qrc
+            tests/WarpChainTest.cpp)
+    set_target_properties(ThroneConfigTests PROPERTIES
+            AUTOUIC ON AUTOMOC ON AUTORCC ON
+            MACOSX_BUNDLE FALSE WIN32_EXECUTABLE FALSE)
+    target_include_directories(ThroneConfigTests PRIVATE $<TARGET_PROPERTY:Throne,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(ThroneConfigTests PRIVATE $<TARGET_PROPERTY:Throne,COMPILE_DEFINITIONS>)
+    target_link_libraries(ThroneConfigTests PRIVATE $<TARGET_PROPERTY:Throne,LINK_LIBRARIES>)
+    if (THRONE_ENGINE_LINT)
+        add_dependencies(ThroneConfigTests engine_boundary)
+    endif ()
+    qt_finalize_executable(ThroneConfigTests)
+    add_test(NAME warp_chain COMMAND ThroneConfigTests)
+    set_tests_properties(warp_chain PROPERTIES TIMEOUT 120
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=;QT_STYLE_OVERRIDE=Fusion")
 endif ()
