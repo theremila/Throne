@@ -1,6 +1,7 @@
 #include "include/configs/generate.h"
 #include "include/api/RPC.h"
 #include "include/configs/AutoSelectorPlan.h"
+#include "include/configs/sub/warp.h"
 #include "include/configs/common/utils.h"
 #include "include/global/Configs.hpp"
 
@@ -637,54 +638,62 @@ namespace Configs {
             if (const auto parsed = portText.toInt(); parsed > 0 && parsed <= 65535) port = parsed;
         }
 
-        std::shared_ptr<Profile> getWarpProfile() {
+        std::shared_ptr<Profile> getWarpProfile(int id = warpProfileID) {
             const auto &settings = *dataManager->settingsRepo;
-            auto warpProfile = std::make_shared<Profile>();
-            warpProfile->name = "warp";
-            warpProfile->id = warpProfileID;
-
-            if (settings.warp_mode == "masque") {
-                warpProfile->type = "masque";
-                auto outbound = std::make_shared<masque>();
-                outbound->name = "warp";
-                splitWarpEndpoint(settings.warp_masque_ep, 443, outbound->server, outbound->server_port);
-                outbound->private_key = settings.warp_masque_private_key;
-                outbound->peer_public_key = settings.warp_masque_peer_public_key;
+            const bool masqueMode = settings.warp_mode == "masque";
+            Configs_network::WarpIdentity identity;
+            identity.privateKey = masqueMode ? settings.warp_masque_private_key : settings.warp_private_key;
+            identity.peerPublicKey = masqueMode ? settings.warp_masque_peer_public_key : settings.warp_public_key;
+            identity.endpoint = masqueMode ? settings.warp_masque_ep : settings.warp_ep;
+            auto profile = ProfilesRepo::NewProfile(masqueMode ? "masque" : "wireguard");
+            if (id == warpEntryProfileID) {
+                const auto config = QString2QJsonObject(settings.warp_entry_config);
+                if (!Configs_network::IsWarpIdentityConfig(config, settings.warp_mode)
+                    || config["private_key"].toString() == identity.privateKey
+                    || !profile->outbound->ParseFromJson(config)) return nullptr;
+            } else if (masqueMode) {
+                auto *outbound = profile->Masque();
+                outbound->private_key = identity.privateKey;
+                outbound->peer_public_key = identity.peerPublicKey;
                 outbound->address = settings.warp_masque_ifc_addrs;
+            } else {
+                auto *outbound = profile->Wireguard();
+                outbound->private_key = identity.privateKey;
+                outbound->address = settings.warp_ifc_addrs;
+                outbound->peer->public_key = identity.peerPublicKey;
+                outbound->peer->reserved = QStringList2QListInt(settings.warp_reserved);
+                outbound->peer->persistent_keepalive = "10";
+            }
+            profile->id = id;
+            profile->name = "warp";
+            profile->outbound->name = "warp";
+            QString host;
+            int port = 0;
+            splitWarpEndpoint(identity.endpoint, masqueMode ? 443 : 2408, host, port);
+            profile->outbound->SetAddress(host);
+            profile->outbound->SetPort(port);
+            if (masqueMode) {
+                auto *outbound = profile->Masque();
                 outbound->mtu = 1280;
                 if (!settings.warp_masque_sni.isEmpty()) outbound->tls->server_name = settings.warp_masque_sni;
-                switch (settings.warp_masque_http_mode) {
-                    case 1:
-                        outbound->http_version = 3;
-                        outbound->disable_version_fallback = true;
-                        break;
-                    case 2:
-                        outbound->http_version = 2;
-                        break;
-                    default:
-                        break;
+                outbound->http_version = settings.warp_masque_http_mode == 2 ? 2 : settings.warp_masque_http_mode == 1 ? 3 : 0;
+                outbound->disable_version_fallback = settings.warp_masque_http_mode == 1;
+            } else {
+                auto *outbound = profile->Wireguard();
+                outbound->mtu = 1280;
+                if (settings.warp_mode == "amnezia") {
+                    outbound->enable_amnezia = true;
+                    outbound->jc = 4;
+                    outbound->jmin = 40;
+                    outbound->jmax = 70;
+                    outbound->h1 = "1";
+                    outbound->h2 = "2";
+                    outbound->h3 = "3";
+                    outbound->h4 = "4";
+                    outbound->i1 = Configs_network::GenerateWarpCamouflage();
                 }
-                warpProfile->outbound = outbound;
-                return warpProfile;
             }
-
-            warpProfile->type = "wireguard";
-            auto outbound = std::make_shared<wireguard>();
-            outbound->name = "warp";
-            splitWarpEndpoint(settings.warp_ep, 2408, outbound->server, outbound->server_port);
-            outbound->private_key = settings.warp_private_key;
-            outbound->address = settings.warp_ifc_addrs;
-            auto peer = std::make_shared<Peer>();
-            peer->public_key = settings.warp_public_key;
-            peer->address = outbound->server;
-            peer->port = outbound->server_port;
-            peer->reserved = QStringList2QListInt(settings.warp_reserved);
-            peer->persistent_keepalive = "10";
-            outbound->peer = peer;
-            outbound->mtu = 1280;
-
-            warpProfile->outbound = outbound;
-            return warpProfile;
+            return profile;
         }
 
         // ------------------------------------------------------- prerequisites
@@ -721,6 +730,21 @@ namespace Configs {
             // A verbatim raw profile takes no twins, and an unreachable bridge still starts a tun.
             ctx.l3Bridge = l3BridgeEnabled(ctx) && !(routeChain->isRaw && routeChain->preventModifications);
 
+            if (settings.enable_warp) {
+                if (settings.warp_chain_order != "proxy-first" && settings.warp_chain_order != "warp-first"
+                    && settings.warp_chain_order != "warp-both") {
+                    ctx.error = "Unknown WARP chain order. Select a chain order in Routing Settings.";
+                    return;
+                }
+                if (settings.warp_mode != "wireguard" && settings.warp_mode != "masque" && settings.warp_mode != "amnezia") {
+                    ctx.error = "Unknown WARP transport. Select a transport in Routing Settings.";
+                    return;
+                }
+                if (settings.warp_chain_order == "warp-both" && getWarpProfile(warpEntryProfileID) == nullptr) {
+                    ctx.error = "Two-sided WARP requires independent identities. Generate the WARP config again in Routing Settings.";
+                    return;
+                }
+            }
             const bool warpMissing = settings.warp_mode == "masque"
                 ? settings.warp_masque_private_key.isEmpty() ||
                   settings.warp_masque_peer_public_key.isEmpty() ||
@@ -1455,13 +1479,18 @@ namespace Configs {
             bool inXray = false;
             for (auto id : entIDs)
             {
-                if (id == warpProfileID) {
+                if (id == warpProfileID || id == warpEntryProfileID) {
                     if (inXray) {
                         ctx.xrayToSingTransitioned = true;
                         scan.coreTransitions++;
                     }
                     inXray = false;
-                    ents.append(getWarpProfile());
+                    const auto warp = getWarpProfile(id);
+                    if (warp == nullptr) {
+                        error = "WARP entry identity is missing or invalid. Generate the WARP config again.";
+                        return;
+                    }
+                    ents.append(warp);
                     continue;
                 }
                 auto ent = getProfile(id);
@@ -1599,6 +1628,23 @@ namespace Configs {
                     return;
                 }
                 object["tag"] = tag;
+                const auto &settings = *dataManager->settingsRepo;
+                const bool sharedEntry = nextTag.isEmpty() && settings.enable_warp
+                    && ((ent->id == warpEntryProfileID && settings.warp_chain_order == "warp-both")
+                        || (ent->id == warpProfileID && settings.warp_chain_order == "warp-first"));
+                if (sharedEntry) {
+                    // Selector members must share one tunnel, not compete for the same WARP identity.
+                    const QString sharedTag = QStringLiteral("warp-entry");
+                    const bool exists = std::any_of(ctx.endpoints.cbegin(), ctx.endpoints.cend(), [&](const QJsonValue &endpoint) {
+                        return endpoint.toObject()["tag"] == sharedTag;
+                    });
+                    if (!exists) {
+                        object["tag"] = sharedTag;
+                        ctx.endpoints.append(object);
+                    }
+                    ctx.outbounds.append(QJsonObject{{"type", "selector"}, {"tag", tag}, {"outbounds", QJsonArray{sharedTag}}});
+                    continue;
+                }
                 collectEchQueryName(ctx, *ent);
                 // Realm reads its STUN resolver off this key only; without it the hosts go through DNS rules.
                 if (auto hy = ent->Hysteria(); hy != nullptr && hy->RealmActive())
@@ -1833,6 +1879,11 @@ namespace Configs {
             bool inXray = false;
             for (int id : hopIDs)
             {
+                if (id == warpProfileID || id == warpEntryProfileID) {
+                    if (inXray) needed.xrayToSing = true;
+                    inXray = false;
+                    continue;
+                }
                 auto hop = getProfile(id);
                 if (hop == nullptr || hop->outbound == nullptr) continue;
                 if (hop->outbound->IsXrayFullConfig()) needed.xrayFullConfig = true;
@@ -1869,7 +1920,14 @@ namespace Configs {
             return invalid;
         }
 
-        QString buildAutoSelectorGroup(BuildContext &ctx, bool warpWrap)
+        struct SelectorWarp {
+            QString tag;
+            int entryID = NoProfileId;
+            bool exit = false;
+            bool track = true;
+        };
+
+        QString buildAutoSelectorGroup(BuildContext &ctx, const SelectorWarp &warp)
         {
             const auto &settings = *dataManager->settingsRepo;
             auto selector = ctx.ent->AutoSelector();
@@ -1886,8 +1944,9 @@ namespace Configs {
                 return {};
             }
 
-            // With warp in front every member sits behind the single "proxy"-tagged warp outbound, so the group takes warp-bypass.
-            const QString groupTag = warpWrap ? tags::warpBypass : tags::proxy;
+            // The main and bypass pools use separate tags and share only the ingress WARP tunnel.
+            const QString groupTag = warp.tag;
+            const QString memberPrefix = warp.track ? QString(tags::poolChainPrefix) : QString(tags::poolChainPrefix) + "-bypass";
             const int chainGroupsBefore = static_cast<int>(ctx.result->chainGroups.size());
 
             AutoSelectorBuildInfo info;
@@ -1919,6 +1978,7 @@ namespace Configs {
                 if (group != nullptr && group->landing_proxy_id >= 0) hopIDs.append(group->landing_proxy_id);
                 hopIDs.append(id);
                 if (group != nullptr && group->front_proxy_id >= 0) hopIDs.append(group->front_proxy_id);
+                if (warp.entryID != NoProfileId) hopIDs.append(warp.entryID);
                 const auto bridges = bridgesFor(hopIDs);
                 bridgeCount += bridges.count();
                 planned.append({member, hopIDs, bridges});
@@ -1940,7 +2000,7 @@ namespace Configs {
 
                 const auto tag = buildOutboundChain(ctx, {
                     .hopIDs = hopIDs,
-                    .prefix = hopTag(tags::poolChainPrefix, idx),
+                    .prefix = hopTag(memberPrefix, idx),
                     .singToXrayPort = singToXrayPort,
                     .xrayToSingPort = xrayToSingPort,
                     .xrayFullConfigPort = xrayFullConfigPort,
@@ -1987,7 +2047,7 @@ namespace Configs {
                 return {};
             }
 
-            if (warpWrap)
+            if (warp.exit)
             {
                 // Bytes land on the warp outbound now, so the per-member watch tags would all read zero.
                 QList<std::shared_ptr<Profile>> credited;
@@ -2029,12 +2089,12 @@ namespace Configs {
                 groupObject["balance_interval"] = Int2String(selector->balanceIntervalSec) + "s";
             }
             ctx.outbounds.append(groupObject);
-            ctx.result->autoSelectors.append(info);
+            if (warp.track) ctx.result->autoSelectors.append(info);
             return groupTag;
         }
 
-        // The group already holds warp-bypass, so warp itself is emitted here as "proxy" and points at it.
-        void buildWarpInFrontOfSelector(BuildContext &ctx)
+        // The exit WARP endpoint dials through the selected member of the main pool.
+        void buildWarpInFrontOfSelector(BuildContext &ctx, const QString &selectorTag)
         {
             auto warpEnt = getWarpProfile();
             auto [warpObject, warpError] = warpEnt->outbound->Build();
@@ -2044,7 +2104,7 @@ namespace Configs {
                 return;
             }
             warpObject["tag"] = tags::proxy;
-            warpObject["detour"] = tags::warpBypass;
+            warpObject["detour"] = selectorTag;
             if (warpEnt->outbound->IsEndpoint()) ctx.endpoints.append(warpObject);
             else ctx.outbounds.append(warpObject);
         }
@@ -2056,14 +2116,23 @@ namespace Configs {
                 ctx.error = "No group found for ent, data is corrupted";
                 return;
             }
-            const bool warpWrap = dataManager->settingsRepo->enable_warp;
+            const auto &settings = *dataManager->settingsRepo;
+            const bool warpBefore = settings.enable_warp && settings.warp_chain_order != "proxy-first";
+            const bool warpAfter = settings.enable_warp && settings.warp_chain_order != "warp-first";
+            const bool warpWrap = warpAfter && !warpBefore;
+            const int entryID = warpAfter ? warpEntryProfileID : warpProfileID;
             if (ctx.ent->type == "autoselector")
             {
-                buildAutoSelectorGroup(ctx, warpWrap);
+                const QString selectorTag = warpAfter ? (warpBefore ? QStringLiteral("warp-main") : QString(tags::warpBypass)) : QString(tags::proxy);
+                buildAutoSelectorGroup(ctx, {.tag = selectorTag, .entryID = warpBefore ? entryID : NoProfileId, .exit = warpAfter});
                 if (!ctx.error.isEmpty()) return;
-                if (warpWrap)
+                if (warpBefore) {
+                    buildAutoSelectorGroup(ctx, {.tag = tags::warpBypass, .track = false});
+                    if (!ctx.error.isEmpty()) return;
+                }
+                if (warpAfter)
                 {
-                    buildWarpInFrontOfSelector(ctx);
+                    buildWarpInFrontOfSelector(ctx, selectorTag);
                     if (!ctx.error.isEmpty()) return;
                 }
             }
@@ -2087,9 +2156,13 @@ namespace Configs {
                     entIDs.append(ctx.ent->id);
                 }
                 if (group->front_proxy_id >= 0) entIDs.append(group->front_proxy_id);
-                if (warpWrap) {
-                    entIDs.prepend(warpProfileID);
+                if (warpBefore) {
+                    const auto bypassTag = buildOutboundChain(ctx, {.hopIDs = entIDs, .prefix = tags::warpBypass});
+                    if (!ctx.error.isEmpty()) return;
+                    ctx.outbounds.append(QJsonObject{{"type", "selector"}, {"tag", tags::warpBypass}, {"outbounds", QJsonArray{bypassTag}}});
+                    entIDs.append(entryID);
                 }
+                if (warpAfter) entIDs.prepend(warpProfileID);
                 buildOutboundChain(ctx, {
                     .hopIDs = entIDs,
                     .prefix = tags::mainChainPrefix,
@@ -2101,8 +2174,8 @@ namespace Configs {
                     ctx.result->chainGroups.last().profiles.append(ctx.ent);
                 }
             }
-            ctx.result->outboundNames.insert(warpWrap ? tags::warpBypass : tags::proxy, profileDisplayName(ctx.ent));
-            if (warpWrap) ctx.result->outboundNames.insert(tags::proxy, QStringLiteral("WARP"));
+            ctx.result->outboundNames.insert(warpAfter ? tags::warpBypass : tags::proxy, profileDisplayName(ctx.ent));
+            if (warpAfter) ctx.result->outboundNames.insert(tags::proxy, QStringLiteral("WARP"));
 
             int routeSuffix = 0;
             for (const auto& routeGroup : ctx.prerequisites.routing.routeOutboundGroups) {
@@ -2569,7 +2642,7 @@ namespace Configs {
         }
 
         std::shared_ptr<Profile> scanChainHop(int id) {
-            return id == warpProfileID ? getWarpProfile() : getProfile(id);
+            return id == warpProfileID || id == warpEntryProfileID ? getWarpProfile(id) : getProfile(id);
         }
 
         QString scanCloneBlocker(const std::shared_ptr<Profile> &profile) {

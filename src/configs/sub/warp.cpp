@@ -3,12 +3,23 @@
 #include <include/global/Configs.hpp>
 #include <include/global/HTTPRequestHelper.hpp>
 #include <include/global/LocalNetwork.hpp>
+#include <include/configs/generate.h>
+#include <include/configs/sub/WarpCpsPresets.h>
+#include <include/database/ProfilesRepo.h>
 #include <QMessageBox>
 #include <QObject>
 #include <QUrl>
+#include <QRandomGenerator>
 
 namespace Configs_network {
     namespace {
+        QStringList warpAddresses(const Configs_network::WarpIdentity &identity) {
+            QStringList addresses;
+            if (!identity.ipv4.isEmpty()) addresses << identity.ipv4 + "/32";
+            if (!identity.ipv6.isEmpty()) addresses << identity.ipv6 + "/128";
+            return addresses;
+        }
+
         QString warpProxy(QString *error) {
             if (!RequestUsesMixedInbound(false, error)) return {};
             const auto &settings = Configs::dataManager->settingsRepo;
@@ -49,6 +60,49 @@ namespace Configs_network {
         identity->ipv6 = QString::fromStdString(reply.ipv6.value_or(""));
         for (const auto byte : reply.reserved) identity->reserved << byte;
         return identity;
+    }
+
+    QJsonObject WarpIdentityToBeanJson(const QString &transport, const Configs_network::WarpIdentity &identity) {
+        QString host;
+        int port = 0;
+        if (transport == QLatin1String("masque")) {
+            auto profile = Configs::ProfilesRepo::NewProfile(QStringLiteral("masque"));
+            auto *masque = profile->Masque();
+            masque->private_key = identity.privateKey;
+            masque->peer_public_key = identity.peerPublicKey;
+            masque->address = warpAddresses(identity);
+            masque->mtu = 1280;
+            Configs::SplitWarpEndpoint(identity.endpoint, 443, host, port);
+            masque->server = host;
+            masque->server_port = port;
+            return masque->ExportToJson();
+        }
+        auto profile = Configs::ProfilesRepo::NewProfile(QStringLiteral("wireguard"));
+        auto *wireguard = profile->Wireguard();
+        wireguard->private_key = identity.privateKey;
+        wireguard->address = warpAddresses(identity);
+        wireguard->mtu = 1280;
+        wireguard->peer->public_key = identity.peerPublicKey;
+        wireguard->peer->reserved = identity.reserved;
+        wireguard->peer->persistent_keepalive = "10";
+        Configs::SplitWarpEndpoint(identity.endpoint, 2408, host, port);
+        wireguard->SetAddress(host);
+        wireguard->SetPort(port);
+        return wireguard->ExportToJson();
+    }
+
+    bool IsWarpIdentityConfig(const QJsonObject &config, const QString &transport) {
+        const bool masque = transport == "masque";
+        if (config["type"].toString() != (masque ? "masque" : "wireguard")
+            || config["private_key"].toString().isEmpty() || config["address"].toArray().isEmpty()) return false;
+        return masque ? !config["peer_public_key"].toString().isEmpty()
+                      : !config["peers"].toArray().isEmpty()
+                        && !config["peers"].toArray().first().toObject()["public_key"].toString().isEmpty();
+    }
+
+    QString GenerateWarpCamouflage() {
+        const auto packet = warpCpsPresets[QRandomGenerator::global()->bounded(int(warpCpsPresets.size()))];
+        return QString::fromLatin1(packet.data(), qsizetype(packet.size()));
     }
 
     bool ConfirmWarpTerms(QWidget *parent) {

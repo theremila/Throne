@@ -25,13 +25,6 @@ namespace Scanner {
             return clone;
         }
 
-        QStringList scanProfilesAddresses(const Configs_network::WarpIdentity &identity) {
-            QStringList addresses;
-            if (!identity.ipv4.isEmpty()) addresses << identity.ipv4 + "/32";
-            if (!identity.ipv6.isEmpty()) addresses << identity.ipv6 + "/128";
-            return addresses;
-        }
-
         std::shared_ptr<Configs::Profile> scanProfilesBuiltin(const QString &transport, QString *error) {
             const auto &settings = *Configs::dataManager->settingsRepo;
             auto profile = Configs::ProfilesRepo::NewProfile(transport);
@@ -182,31 +175,6 @@ namespace Scanner {
     }
 
     QJsonObject WarpIdentityToBeanJson(const QString &transport, const Configs_network::WarpIdentity &identity) {
-        QString host;
-        int port = 0;
-        if (transport == QLatin1String("masque")) {
-            auto profile = Configs::ProfilesRepo::NewProfile(QStringLiteral("masque"));
-            auto *masque = profile->Masque();
-            masque->private_key = identity.privateKey;
-            masque->peer_public_key = identity.peerPublicKey;
-            masque->address = scanProfilesAddresses(identity);
-            masque->mtu = 1280;
-            Configs::SplitWarpEndpoint(identity.endpoint, 443, host, port);
-            masque->server = host;
-            masque->server_port = port;
-            return masque->ExportToJson();
-        }
-        auto profile = Configs::ProfilesRepo::NewProfile(QStringLiteral("wireguard"));
-        auto *wireguard = profile->Wireguard();
-        wireguard->private_key = identity.privateKey;
-        wireguard->address = scanProfilesAddresses(identity);
-        wireguard->mtu = 1280;
-        wireguard->peer->public_key = identity.peerPublicKey;
-        wireguard->peer->reserved = identity.reserved;
-        wireguard->peer->persistent_keepalive = "10";
-        Configs::SplitWarpEndpoint(identity.endpoint, 2408, host, port);
-        wireguard->SetAddress(host);
-        wireguard->SetPort(port);
-        return wireguard->ExportToJson();
+        return Configs_network::WarpIdentityToBeanJson(transport, identity);
     }
 } // namespace Scanner

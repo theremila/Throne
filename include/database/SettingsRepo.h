@@ -301,7 +301,9 @@ namespace Configs {
         QString warp_ep = "";
         QStringList warp_reserved = {};
         bool warp_tos_accepted = false;
-        QString warp_mode = "wireguard"; // "wireguard" or "masque"
+        QString warp_chain_order = "proxy-first"; // proxy-first | warp-first | warp-both
+        QString warp_entry_config; // Independent identity for the entry hop in warp-both
+        QString warp_mode = "wireguard"; // "wireguard", "amnezia", or "masque"
         QString warp_masque_private_key = "";
         QString warp_masque_peer_public_key = "";
         QString warp_masque_ep = "";

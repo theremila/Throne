@@ -104,6 +104,7 @@ namespace Configs
     }
 
     constexpr int warpProfileID = -2408;
+    constexpr int warpEntryProfileID = -2409;
 
     struct PredefinedDNSEntry {
         QString domain;

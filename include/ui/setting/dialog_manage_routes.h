@@ -62,6 +62,8 @@ private:
 
     void generate_warp_config();
 
+    QString warpEntryConfig;
+
     struct DnsAdvancedDraft {
         int cache_capacity;
         bool disable_cache;

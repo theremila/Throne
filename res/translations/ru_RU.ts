@@ -3809,6 +3809,50 @@ A domain listed with only one address family is answered NXDOMAIN for the other,
         <source>WARP has no config yet: click Generate Warp Config.</source>
         <translation>У WARP ещё нет конфигурации: нажмите «Сгенерировать конфигурацию Warp».</translation>
     </message>
+    <message>
+        <source>Traffic path</source>
+        <translation>Маршрут трафика</translation>
+    </message>
+    <message>
+        <source>WARP at entry</source>
+        <translation>Вход через WARP</translation>
+    </message>
+    <message>
+        <source>WARP at exit</source>
+        <translation>Выход через WARP</translation>
+    </message>
+    <message>
+        <source>WARP at entry and exit</source>
+        <translation>Вход и выход через WARP</translation>
+    </message>
+    <message>
+        <source>Choose where WARP is applied to the selected connection.</source>
+        <translation>Выберите, на каком участке подключения использовать WARP.</translation>
+    </message>
+    <message>
+        <source>Apply WARP to the selected connection.</source>
+        <translation>Использовать WARP для выбранного подключения.</translation>
+    </message>
+    <message>
+        <source>Connect to the selected profile through WARP. Traffic exits through that profile.</source>
+        <translation>Подключение к выбранному профилю идёт через WARP. Трафик выходит через выбранный профиль.</translation>
+    </message>
+    <message>
+        <source>Connect to WARP through the selected profile. Traffic exits through WARP.</source>
+        <translation>Подключение к WARP идёт через выбранный профиль. Трафик выходит через WARP.</translation>
+    </message>
+    <message>
+        <source>Use WARP before and after the selected profile. Generate the config to create two independent WARP connections.</source>
+        <translation>WARP используется до и после выбранного профиля. Сгенерируйте конфигурацию, чтобы создать два независимых подключения WARP.</translation>
+    </message>
+    <message>
+        <source>Generate the WARP config to create independent entry and exit connections.</source>
+        <translation>Сгенерируйте конфигурацию WARP для независимых подключений на входе и выходе.</translation>
+    </message>
+    <message>
+        <source>AmneziaWG adds WARP-compatible junk and camouflage packets to WireGuard. MASQUE uses HTTP/3 or HTTP/2.</source>
+        <translation>AmneziaWG добавляет к WireGuard совместимые с WARP шумовые и маскирующие пакеты. MASQUE использует HTTP/3 или HTTP/2.</translation>
+    </message>
 </context>
 <context>
     <name>DialogNewScan</name>

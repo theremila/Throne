@@ -502,7 +502,26 @@ DialogManageRoutes::DialogManageRoutes(QWidget *parent) : QDialog(parent), ui(ne
     });
 
     ui->enable_warp->setChecked(Configs::dataManager->settingsRepo->enable_warp);
-    ui->warp_mode->setCurrentIndex(Configs::dataManager->settingsRepo->warp_mode == "masque" ? 1 : 0);
+    warpEntryConfig = Configs::dataManager->settingsRepo->warp_entry_config;
+    ui->warp_chain_order->addItem(tr("WARP at entry"), "warp-first");
+    ui->warp_chain_order->addItem(tr("WARP at exit"), "proxy-first");
+    ui->warp_chain_order->addItem(tr("WARP at entry and exit"), "warp-both");
+    const auto savedOrder = ui->warp_chain_order->findData(Configs::dataManager->settingsRepo->warp_chain_order);
+    ui->warp_chain_order->setCurrentIndex(savedOrder < 0 ? 1 : savedOrder);
+    const auto describePath = [this] {
+        const auto order = ui->warp_chain_order->currentData().toString();
+        ui->warp_path_description->setText(order == "warp-first"
+            ? tr("Connect to the selected profile through WARP. Traffic exits through that profile.")
+            : order == "warp-both"
+                ? tr("Use WARP before and after the selected profile. Generate the config to create two independent WARP connections.")
+                : tr("Connect to WARP through the selected profile. Traffic exits through WARP."));
+    };
+    connect(ui->warp_chain_order, &QComboBox::currentIndexChanged, this, describePath);
+    describePath();
+    ui->warp_mode->setItemData(0, "wireguard");
+    ui->warp_mode->setItemData(1, "masque");
+    ui->warp_mode->setItemData(2, "amnezia");
+    ui->warp_mode->setCurrentIndex(std::max(0, ui->warp_mode->findData(Configs::dataManager->settingsRepo->warp_mode)));
     ui->warp_private_key->setText(Configs::dataManager->settingsRepo->warp_private_key);
     ui->warp_public_key->setText(Configs::dataManager->settingsRepo->warp_public_key);
     ui->warp_ifc_addrs->setText(Configs::dataManager->settingsRepo->warp_ifc_addrs.join(","));
@@ -515,7 +534,7 @@ DialogManageRoutes::DialogManageRoutes(QWidget *parent) : QDialog(parent), ui(ne
     ui->warp_masque_sni->setText(Configs::dataManager->settingsRepo->warp_masque_sni);
     ui->warp_masque_http_mode->setCurrentIndex(std::clamp(Configs::dataManager->settingsRepo->warp_masque_http_mode, 0, 2));
     auto showWarpMode = [this](int index) {
-        UiMode::SetVisible(ui->warp_wg_box, index == 0);
+        UiMode::SetVisible(ui->warp_wg_box, index != 1);
         UiMode::SetVisible(ui->warp_masque_box, index == 1);
     };
     showWarpMode(ui->warp_mode->currentIndex());
@@ -578,6 +597,15 @@ DialogManageRoutes::DialogManageRoutes(QWidget *parent) : QDialog(parent), ui(ne
         const bool missing = std::any_of(fields.cbegin(), fields.cend(), [](const QLineEdit *edit) { return edit->text().trimmed().isEmpty(); });
         return missing ? tr("WARP has no config yet: click Generate Warp Config.") : QString();
     }, nullptr, Validation::Severity::Error, ui->enable_warp->text());
+    form->addRule({ui->enable_warp, ui->warp_mode, ui->warp_chain_order}, [this] {
+        if (!ui->enable_warp->isChecked() || ui->warp_chain_order->currentData() != "warp-both") return QString();
+        const auto config = QString2QJsonObject(warpEntryConfig);
+        const auto primaryKey = ui->warp_mode->currentIndex() == 1 ? ui->warp_masque_private_key->text().trimmed()
+                                                                 : ui->warp_private_key->text().trimmed();
+        return Configs_network::IsWarpIdentityConfig(config, ui->warp_mode->currentData().toString())
+            && config["private_key"].toString() != primaryKey ? QString()
+            : tr("Generate the WARP config to create independent entry and exit connections.");
+    }, nullptr, Validation::Severity::Error, ui->warp_chain_order_l->text());
     form->markAll();
 
     ADD_ASTERISK(this)
@@ -588,24 +616,33 @@ DialogManageRoutes::DialogManageRoutes(QWidget *parent) : QDialog(parent), ui(ne
 void DialogManageRoutes::generate_warp_config() {
     if (!Configs_network::ConfirmWarpTerms(this)) return;
 
-    const bool masque = ui->warp_mode->currentIndex() == 1;
+    const bool masque = ui->warp_mode->currentData() == "masque";
+    const bool amnezia = ui->warp_mode->currentData() == "amnezia";
+    const bool dual = ui->warp_chain_order->currentData() == "warp-both";
     const auto originalText = ui->warp_autogen->text();
     ui->warp_autogen->setEnabled(false);
+    ui->warp_mode->setEnabled(false);
+    ui->warp_chain_order->setEnabled(false);
     ui->warp_autogen->setText(tr("Generating config..."));
 
     QPointer<DialogManageRoutes> self(this);
-    runOnNewThread([self, masque, originalText] {
+    runOnNewThread([self, masque, amnezia, dual, originalText] {
         QString error;
-        const auto conf = Configs_network::RegisterWarp(masque ? "masque" : "wireguard", &error);
-        runOnUiThread([self, masque, originalText, conf, error] {
+        const auto transport = masque ? "masque" : "wireguard";
+        const auto conf = Configs_network::RegisterWarp(transport, &error);
+        const auto entry = conf && dual ? Configs_network::RegisterWarp(transport, &error) : nullptr;
+        runOnUiThread([self, masque, amnezia, dual, originalText, conf, entry, error] {
             if (self == nullptr) return;
             auto *dialog = self.data();
-            if (!conf) {
+            dialog->ui->warp_mode->setEnabled(true);
+            dialog->ui->warp_chain_order->setEnabled(true);
+            if (!conf || (dual && !entry)) {
                 dialog->ui->warp_autogen->setText(originalText);
                 dialog->ui->warp_autogen->setEnabled(true);
                 MessageBoxWarning(tr("Failed to generate warp config"), error);
                 return;
             }
+            if (dual) dialog->warpEntryConfig = QJsonObject2QString(Configs_network::WarpIdentityToBeanJson(masque ? "masque" : "wireguard", *entry), true);
             QStringList addrs;
             if (!conf->ipv4.isEmpty()) addrs << conf->ipv4 + "/32";
             if (!conf->ipv6.isEmpty()) addrs << conf->ipv6 + "/128";
@@ -617,7 +654,9 @@ void DialogManageRoutes::generate_warp_config() {
             } else {
                 dialog->ui->warp_private_key->setText(conf->privateKey);
                 dialog->ui->warp_public_key->setText(conf->peerPublicKey);
-                dialog->ui->warp_ep->setText(conf->endpoint);
+                QUrl endpoint("udp://" + conf->endpoint);
+                if (amnezia && endpoint.isValid() && !endpoint.host().isEmpty()) endpoint.setPort(3854);
+                dialog->ui->warp_ep->setText(amnezia ? endpoint.authority() : conf->endpoint);
                 dialog->ui->warp_ifc_addrs->setText(addrs.join(","));
                 dialog->ui->warp_reserved->setText(QListInt2QListString(conf->reserved).join(","));
             }
@@ -686,12 +725,14 @@ void DialogManageRoutes::accept() {
     Configs::dataManager->settingsRepo->current_route_id = currentRoute->id;
 
     Configs::dataManager->settingsRepo->enable_warp = ui->enable_warp->isChecked();
+    Configs::dataManager->settingsRepo->warp_chain_order = ui->warp_chain_order->currentData().toString();
+    Configs::dataManager->settingsRepo->warp_entry_config = warpEntryConfig;
     Configs::dataManager->settingsRepo->warp_ep = ui->warp_ep->text().trimmed();
     Configs::dataManager->settingsRepo->warp_ifc_addrs = manageRoutesWithPrefix(SplitAndTrim(ui->warp_ifc_addrs->text(), ",", false));
     Configs::dataManager->settingsRepo->warp_private_key = ui->warp_private_key->text().trimmed();
     Configs::dataManager->settingsRepo->warp_public_key = ui->warp_public_key->text().trimmed();
     Configs::dataManager->settingsRepo->warp_reserved = SplitAndTrim(ui->warp_reserved->text(), ",", false);
-    Configs::dataManager->settingsRepo->warp_mode = ui->warp_mode->currentIndex() == 1 ? "masque" : "wireguard";
+    Configs::dataManager->settingsRepo->warp_mode = ui->warp_mode->currentData().toString();
     Configs::dataManager->settingsRepo->warp_masque_ep = ui->warp_masque_ep->text().trimmed();
     Configs::dataManager->settingsRepo->warp_masque_private_key = ui->warp_masque_private_key->text().trimmed();
     Configs::dataManager->settingsRepo->warp_masque_peer_public_key = ui->warp_masque_peer_public_key->text().trimmed();

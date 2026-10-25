@@ -886,3 +886,12 @@ target_link_libraries(Throne PRIVATE
 )
 
 qt_finalize_executable(Throne)
+
+option(THRONE_CONFIG_TESTS "Build the config integration test runner instead of the GUI" OFF)
+enable_testing()
+if (THRONE_CONFIG_TESTS)
+    set_source_files_properties(src/main.cpp PROPERTIES COMPILE_DEFINITIONS "main=ThroneGuiMain")
+    target_sources(Throne PRIVATE tests/WarpChainTest.cpp)
+    add_test(NAME warp_chain COMMAND Throne)
+    set_tests_properties(warp_chain PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=;QT_STYLE_OVERRIDE=Fusion")
+endif ()

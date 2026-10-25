@@ -1,5 +1,6 @@
 #pragma once
 #include <QList>
+#include <QJsonObject>
 #include <QString>
 #include <memory>
 
@@ -10,6 +11,12 @@ namespace Configs_network {
         QString deviceId, token, privateKey, peerPublicKey, endpoint, ipv4, ipv6;
         QList<int> reserved;
     };
+
+    QJsonObject WarpIdentityToBeanJson(const QString &transport, const WarpIdentity &identity);
+    bool IsWarpIdentityConfig(const QJsonObject &config, const QString &transport);
+
+    // Public, non-account-specific camouflage; identities still come from RegisterWarp.
+    QString GenerateWarpCamouflage();
 
     // Blocking (RPC); never call on the UI thread. tunnelType: "wireguard" | "masque".
     std::shared_ptr<WarpIdentity> RegisterWarp(const QString &tunnelType, QString *error);
