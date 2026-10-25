@@ -2285,6 +2285,27 @@ Throne will restart to complete the restore.</source>
 <context>
     <name>DialogManageRoutes</name>
     <message>
+        <source>Chain order</source>
+        <translation>Порядок цепочки</translation>
+    </message>
+    <message>
+        <source>PC → VPS → WARP</source>
+        <translation>ПК → VPS → WARP</translation>
+    </message>
+    <message>
+        <source>PC → WARP → VPS</source>
+        <translation>ПК → WARP → VPS</translation>
+    </message>
+    <message>
+        <source>Combine WARP with the selected proxy using the chosen chain order.</source>
+        <translation>Объединить WARP с выбранным прокси в указанном порядке.</translation>
+    </message>
+    <message>
+        <source>PC → WARP → VPS: connect to your VPS through WARP. PC → VPS → WARP: use WARP as the exit through your VPS. WARP bypass rules use the VPS without WARP.</source>
+        <translation>ПК → WARP → VPS: подключение к VPS через WARP. ПК → VPS → WARP: выход через WARP поверх VPS. Правила обхода WARP используют VPS без WARP.</translation>
+    </message>
+
+    <message>
         <source>Routes</source>
         <translation>Маршруты</translation>
     </message>
@@ -2914,6 +2935,10 @@ Use a number followed by ns, us, ms, s, m, h or d.</source>
     <message>
         <source>Add these remote routing profiles?</source>
         <translation>Добавить эти удалённые профили маршрутизации?</translation>
+    </message>
+    <message>
+        <source>AmneziaWG adds WARP-compatible junk and camouflage packets to WireGuard. MASQUE uses HTTP/3 or HTTP/2.</source>
+        <translation>AmneziaWG добавляет совместимые с WARP шумовые и маскирующие пакеты к WireGuard. MASQUE использует HTTP/3 или HTTP/2.</translation>
     </message>
 </context>
 <context>

@@ -191,6 +191,7 @@ namespace Configs {
             {"warp_public_key",            &warp_public_key},
             {"warp_ep",                    &warp_ep},
             {"warp_mode",                  &warp_mode},
+            {"warp_chain_order",           &warp_chain_order},
             {"warp_masque_private_key",    &warp_masque_private_key},
             {"warp_masque_peer_public_key", &warp_masque_peer_public_key},
             {"warp_masque_ep",             &warp_masque_ep},

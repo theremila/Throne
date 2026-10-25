@@ -4,6 +4,8 @@
 #include <QMessageBox>
 #include <QObject>
 #include <QUrl>
+#include <QRandomGenerator>
+#include "include/configs/sub/WarpCpsPresets.h"
 
 namespace Configs_network {
     namespace {
@@ -51,6 +53,11 @@ namespace Configs_network {
         identity->ipv6 = QString::fromStdString(reply.ipv6.value_or(""));
         for (const auto byte : reply.reserved) identity->reserved << byte;
         return identity;
+    }
+
+    QString GenerateWarpCamouflage() {
+        const auto packet = warpCpsPresets[QRandomGenerator::global()->bounded(int(warpCpsPresets.size()))];
+        return QString::fromLatin1(packet.data(), qsizetype(packet.size()));
     }
 
     bool ConfirmWarpTerms(QWidget *parent) {

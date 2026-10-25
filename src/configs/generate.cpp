@@ -1,6 +1,7 @@
 #include "include/configs/generate.h"
 #include "include/api/RPC.h"
 #include "include/configs/AutoSelectorPlan.h"
+#include "include/configs/sub/warp.h"
 #include "include/global/Configs.hpp"
 
 #include <QApplication>
@@ -518,6 +519,18 @@ namespace Configs {
             peer->persistent_keepalive = "10";
             outbound->peer = peer;
             outbound->mtu = 1280;
+            if (settings.warp_mode == "amnezia") {
+                // Cloudflare is a standard WG peer: retain its packet headers and sizes.
+                outbound->enable_amnezia = true;
+                outbound->jc = 4;
+                outbound->jmin = 40;
+                outbound->jmax = 70;
+                outbound->h1 = "1";
+                outbound->h2 = "2";
+                outbound->h3 = "3";
+                outbound->h4 = "4";
+                outbound->i1 = Configs_network::GenerateWarpCamouflage();
+            }
 
             warpProfile->outbound = outbound;
             return warpProfile;
@@ -556,6 +569,10 @@ namespace Configs {
             // A verbatim raw profile takes no twins, and an unreachable bridge still starts a tun.
             ctx.l3Bridge = l3BridgeEnabled(ctx) && !(routeChain->isRaw && routeChain->preventModifications);
 
+            if (settings.enable_warp && settings.warp_chain_order != "proxy-first" && settings.warp_chain_order != "warp-first") {
+                ctx.error = "Unknown WARP chain order. Select a chain order in Routing Settings.";
+                return;
+            }
             const bool warpMissing = settings.warp_mode == "masque"
                 ? settings.warp_masque_private_key.isEmpty() ||
                   settings.warp_masque_peer_public_key.isEmpty() ||
@@ -1601,6 +1618,11 @@ namespace Configs {
             bool inXray = false;
             for (int id : hopIDs)
             {
+                if (id == warpProfileID) {
+                    if (inXray) needed.xrayToSing = true;
+                    inXray = false;
+                    continue;
+                }
                 auto hop = getProfile(id);
                 if (hop == nullptr || hop->outbound == nullptr) continue;
                 if (hop->outbound->IsXrayFullConfig()) needed.xrayFullConfig = true;
@@ -1633,7 +1655,8 @@ namespace Configs {
             return invalid;
         }
 
-        QString buildAutoSelectorGroup(BuildContext &ctx, const std::shared_ptr<Group> &group, bool warpWrap)
+        QString buildAutoSelectorGroup(BuildContext &ctx, const std::shared_ptr<Group> &group, bool warpWrap,
+                                       const QString &unwrappedTag = tags::proxy)
         {
             const auto &settings = *dataManager->settingsRepo;
             auto selector = ctx.ent->AutoSelector();
@@ -1651,7 +1674,11 @@ namespace Configs {
             }
 
             // With warp in front every member sits behind the single "proxy"-tagged warp outbound, so the group takes warp-bypass.
-            const QString groupTag = warpWrap ? tags::warpBypass : tags::proxy;
+            const QString groupTag = warpWrap ? QString(tags::warpBypass) : unwrappedTag;
+            const bool warpFirst = settings.enable_warp && settings.warp_chain_order == "warp-first"
+                                   && groupTag == tags::proxy;
+            const QString memberPrefix = unwrappedTag == tags::warpBypass
+                ? QString(tags::poolChainPrefix) + "-bypass" : QString(tags::poolChainPrefix);
             const int chainGroupsBefore = static_cast<int>(ctx.result->chainGroups.size());
 
             AutoSelectorBuildInfo info;
@@ -1678,6 +1705,7 @@ namespace Configs {
                 if (group->landing_proxy_id >= 0) hopIDs.append(group->landing_proxy_id);
                 hopIDs.append(id);
                 if (group->front_proxy_id >= 0) hopIDs.append(group->front_proxy_id);
+                if (warpFirst) hopIDs.append(warpProfileID);
                 const auto bridges = bridgesFor(hopIDs);
                 bridgeCount += bridges.count();
                 planned.append({member, hopIDs, bridges});
@@ -1699,7 +1727,7 @@ namespace Configs {
 
                 const auto tag = buildOutboundChain(ctx, {
                     .hopIDs = hopIDs,
-                    .prefix = hopTag(tags::poolChainPrefix, idx),
+                    .prefix = hopTag(memberPrefix, idx),
                     .singToXrayPort = singToXrayPort,
                     .xrayToSingPort = xrayToSingPort,
                     .xrayFullConfigPort = xrayFullConfigPort,
@@ -1786,7 +1814,7 @@ namespace Configs {
                 groupObject["balance_interval"] = Int2String(selector->balanceIntervalSec) + "s";
             }
             ctx.outbounds.append(groupObject);
-            ctx.result->autoSelectors.append(info);
+            if (unwrappedTag != tags::warpBypass) ctx.result->autoSelectors.append(info);
             return groupTag;
         }
 
@@ -1813,11 +1841,17 @@ namespace Configs {
                 ctx.error = "No group found for ent, data is corrupted";
                 return;
             }
-            const bool warpWrap = dataManager->settingsRepo->enable_warp;
+            const auto &settings = *dataManager->settingsRepo;
+            const bool warpFirst = settings.enable_warp && settings.warp_chain_order == "warp-first";
+            const bool warpWrap = settings.enable_warp && !warpFirst;
             if (ctx.ent->type == "autoselector")
             {
                 buildAutoSelectorGroup(ctx, group, warpWrap);
                 if (!ctx.error.isEmpty()) return;
+                if (warpFirst) {
+                    buildAutoSelectorGroup(ctx, group, false, tags::warpBypass);
+                    if (!ctx.error.isEmpty()) return;
+                }
                 if (warpWrap)
                 {
                     buildWarpInFrontOfSelector(ctx);
@@ -1844,7 +1878,21 @@ namespace Configs {
                     entIDs.append(ctx.ent->id);
                 }
                 if (group->front_proxy_id >= 0) entIDs.append(group->front_proxy_id);
-                if (warpWrap) {
+                if (warpFirst) {
+                    // Keep a separate unwrapped chain for the WARP-bypass routing action.
+                    const auto bypassTag = buildOutboundChain(ctx, {
+                        .hopIDs = entIDs,
+                        .prefix = tags::warpBypass,
+                    });
+                    if (!ctx.error.isEmpty()) return;
+                    ctx.outbounds.append(QJsonObject{
+                        {"type", "selector"},
+                        {"tag", tags::warpBypass},
+                        {"outbounds", QJsonArray{bypassTag}},
+                    });
+                    // Hop lists are exit-first; the final dialer is the first physical hop from the PC.
+                    entIDs.append(warpProfileID);
+                } else if (warpWrap) {
                     entIDs.prepend(warpProfileID);
                 }
                 buildOutboundChain(ctx, {

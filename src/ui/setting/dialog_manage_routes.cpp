@@ -431,7 +431,12 @@ DialogManageRoutes::DialogManageRoutes(QWidget *parent) : QDialog(parent), ui(ne
     });
 
     ui->enable_warp->setChecked(Configs::dataManager->settingsRepo->enable_warp);
-    ui->warp_mode->setCurrentIndex(Configs::dataManager->settingsRepo->warp_mode == "masque" ? 1 : 0);
+    ui->warp_chain_order->addItem(tr("PC → VPS → WARP"), "proxy-first");
+    ui->warp_chain_order->addItem(tr("PC → WARP → VPS"), "warp-first");
+    ui->warp_chain_order->setCurrentIndex(Configs::dataManager->settingsRepo->warp_chain_order == "warp-first" ? 1 : 0);
+    ui->warp_chain_order->setEnabled(ui->enable_warp->isChecked());
+    connect(ui->enable_warp, &QCheckBox::toggled, ui->warp_chain_order, &QWidget::setEnabled);
+    ui->warp_mode->setCurrentIndex(Configs::dataManager->settingsRepo->warp_mode == "masque" ? 1 : Configs::dataManager->settingsRepo->warp_mode == "amnezia" ? 2 : 0);
     ui->warp_private_key->setText(Configs::dataManager->settingsRepo->warp_private_key);
     ui->warp_public_key->setText(Configs::dataManager->settingsRepo->warp_public_key);
     ui->warp_ifc_addrs->setText(Configs::dataManager->settingsRepo->warp_ifc_addrs.join(","));
@@ -444,7 +449,7 @@ DialogManageRoutes::DialogManageRoutes(QWidget *parent) : QDialog(parent), ui(ne
     ui->warp_masque_sni->setText(Configs::dataManager->settingsRepo->warp_masque_sni);
     ui->warp_masque_http_mode->setCurrentIndex(std::clamp(Configs::dataManager->settingsRepo->warp_masque_http_mode, 0, 2));
     auto showWarpMode = [this](int index) {
-        ui->warp_wg_box->setVisible(index == 0);
+        ui->warp_wg_box->setVisible(index != 1);
         ui->warp_masque_box->setVisible(index == 1);
     };
     showWarpMode(ui->warp_mode->currentIndex());
@@ -461,15 +466,16 @@ void DialogManageRoutes::generate_warp_config() {
     if (!Configs_network::ConfirmWarpTerms(this)) return;
 
     const bool masque = ui->warp_mode->currentIndex() == 1;
+    const bool amnezia = ui->warp_mode->currentIndex() == 2;
     const auto originalText = ui->warp_autogen->text();
     ui->warp_autogen->setEnabled(false);
     ui->warp_autogen->setText(tr("Generating config..."));
 
     QPointer<DialogManageRoutes> self(this);
-    runOnNewThread([self, masque, originalText] {
+    runOnNewThread([self, masque, amnezia, originalText] {
         QString error;
         const auto conf = Configs_network::RegisterWarp(masque ? "masque" : "wireguard", &error);
-        runOnUiThread([self, masque, originalText, conf, error] {
+        runOnUiThread([self, masque, amnezia, originalText, conf, error] {
             if (self == nullptr) return;
             auto *dialog = self.data();
             if (!conf) {
@@ -489,7 +495,9 @@ void DialogManageRoutes::generate_warp_config() {
             } else {
                 dialog->ui->warp_private_key->setText(conf->privateKey);
                 dialog->ui->warp_public_key->setText(conf->peerPublicKey);
-                dialog->ui->warp_ep->setText(conf->endpoint);
+                QUrl endpoint("udp://" + conf->endpoint);
+                if (amnezia && endpoint.isValid() && !endpoint.host().isEmpty()) endpoint.setPort(3854);
+                dialog->ui->warp_ep->setText(amnezia ? endpoint.authority() : conf->endpoint);
                 dialog->ui->warp_ifc_addrs->setText(addrs.join(","));
                 dialog->ui->warp_reserved->setText(QListInt2QListString(conf->reserved).join(","));
             }
@@ -571,12 +579,13 @@ void DialogManageRoutes::accept() {
     Configs::dataManager->settingsRepo->redirect_listen_port = ui->redirect_listenport->text().trimmed().toInt();
 
     Configs::dataManager->settingsRepo->enable_warp = ui->enable_warp->isChecked();
+    Configs::dataManager->settingsRepo->warp_chain_order = ui->warp_chain_order->currentData().toString();
     Configs::dataManager->settingsRepo->warp_ep = ui->warp_ep->text().trimmed();
     Configs::dataManager->settingsRepo->warp_ifc_addrs = SplitAndTrim(ui->warp_ifc_addrs->text(), ",", false);
     Configs::dataManager->settingsRepo->warp_private_key = ui->warp_private_key->text().trimmed();
     Configs::dataManager->settingsRepo->warp_public_key = ui->warp_public_key->text().trimmed();
     Configs::dataManager->settingsRepo->warp_reserved = SplitAndTrim(ui->warp_reserved->text(), ",", false);
-    Configs::dataManager->settingsRepo->warp_mode = ui->warp_mode->currentIndex() == 1 ? "masque" : "wireguard";
+    Configs::dataManager->settingsRepo->warp_mode = ui->warp_mode->currentIndex() == 1 ? "masque" : ui->warp_mode->currentIndex() == 2 ? "amnezia" : "wireguard";
     Configs::dataManager->settingsRepo->warp_masque_ep = ui->warp_masque_ep->text().trimmed();
     Configs::dataManager->settingsRepo->warp_masque_private_key = ui->warp_masque_private_key->text().trimmed();
     Configs::dataManager->settingsRepo->warp_masque_peer_public_key = ui->warp_masque_peer_public_key->text().trimmed();

@@ -284,10 +284,27 @@
        <item>
         <widget class="QWidget" name="widget_3" native="true">
          <layout class="QFormLayout" name="formLayout_3">
+          <item row="2" column="0">
+           <widget class="QLabel" name="warp_chain_order_l">
+            <property name="text">
+             <string>Chain order</string>
+            </property>
+            <property name="buddy">
+             <cstring>warp_chain_order</cstring>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QComboBox" name="warp_chain_order">
+            <property name="toolTip">
+             <string>PC → WARP → VPS: connect to your VPS through WARP. PC → VPS → WARP: use WARP as the exit through your VPS. WARP bypass rules use the VPS without WARP.</string>
+            </property>
+           </widget>
+          </item>
           <item row="0" column="0">
            <widget class="QCheckBox" name="enable_warp">
             <property name="toolTip">
-             <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Enables the following config to be used as egress, useful for bypassing services restrciting non-warp VPNs&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+             <string>Combine WARP with the selected proxy using the chosen chain order.</string>
             </property>
             <property name="text">
              <string>Enable Warp</string>
@@ -297,7 +314,7 @@
           <item row="1" column="0">
            <widget class="QLabel" name="warp_mode_l">
             <property name="toolTip">
-             <string>WireGuard runs over UDP. MASQUE tunnels over HTTP/3 or HTTP/2 and passes networks that block WireGuard.</string>
+             <string>AmneziaWG adds WARP-compatible junk and camouflage packets to WireGuard. MASQUE uses HTTP/3 or HTTP/2.</string>
             </property>
             <property name="text">
              <string>Mode</string>
@@ -310,7 +327,7 @@
           <item row="1" column="1">
            <widget class="QComboBox" name="warp_mode">
             <property name="toolTip">
-             <string>WireGuard runs over UDP. MASQUE tunnels over HTTP/3 or HTTP/2 and passes networks that block WireGuard.</string>
+             <string>AmneziaWG adds WARP-compatible junk and camouflage packets to WireGuard. MASQUE uses HTTP/3 or HTTP/2.</string>
             </property>
             <item>
              <property name="text">
@@ -322,6 +339,7 @@
               <string notr="true">MASQUE</string>
              </property>
             </item>
+            <item><property name="text"><string notr="true">AmneziaWG (WARP)</string></property></item>
            </widget>
           </item>
          </layout>

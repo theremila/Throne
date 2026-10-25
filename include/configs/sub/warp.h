@@ -11,6 +11,9 @@ namespace Configs_network {
         QList<int> reserved;
     };
 
+    // Public, non-account-specific camouflage; identities still come from RegisterWarp.
+    QString GenerateWarpCamouflage();
+
     // Blocking (RPC); never call on the UI thread. tunnelType: "wireguard" | "masque".
     std::shared_ptr<WarpIdentity> RegisterWarp(const QString &tunnelType, QString *error);
     // Asks once (persisted in settings warp_tos_accepted) whether the user accepts Cloudflare's WARP terms; UI thread only.
