@@ -898,7 +898,10 @@ if (THRONE_CONFIG_TESTS)
             tests/WarpChainTest.cpp)
     set_target_properties(ThroneConfigTests PROPERTIES
             AUTOUIC ON AUTOMOC ON AUTORCC ON
-            MACOSX_BUNDLE FALSE WIN32_EXECUTABLE FALSE)
+            MACOSX_BUNDLE FALSE WIN32_EXECUTABLE FALSE
+            OUTPUT_NAME Throne
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/config-tests"
+            LINK_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/ThroneCore${CMAKE_EXECUTABLE_SUFFIX}")
     target_include_directories(ThroneConfigTests PRIVATE $<TARGET_PROPERTY:Throne,INCLUDE_DIRECTORIES>)
     target_compile_definitions(ThroneConfigTests PRIVATE $<TARGET_PROPERTY:Throne,COMPILE_DEFINITIONS>)
     target_link_libraries(ThroneConfigTests PRIVATE $<TARGET_PROPERTY:Throne,LINK_LIBRARIES>)
@@ -906,6 +909,12 @@ if (THRONE_CONFIG_TESTS)
         add_dependencies(ThroneConfigTests engine_boundary)
     endif ()
     qt_finalize_executable(ThroneConfigTests)
+    # The release core requires a same-directory parent named Throne.
+    add_custom_command(TARGET ThroneConfigTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${CMAKE_CURRENT_BINARY_DIR}/ThroneCore${CMAKE_EXECUTABLE_SUFFIX}"
+                    "$<TARGET_FILE_DIR:ThroneConfigTests>/ThroneCore${CMAKE_EXECUTABLE_SUFFIX}"
+            VERBATIM)
     add_test(NAME warp_chain COMMAND ThroneConfigTests)
     set_tests_properties(warp_chain PROPERTIES TIMEOUT 120
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=;QT_STYLE_OVERRIDE=Fusion")

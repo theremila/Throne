@@ -164,7 +164,12 @@ int main(int argc, char **argv) {
         core.setStandardErrorFile(temp.filePath("core.stderr"));
         core.start(QCoreApplication::applicationDirPath() + "/ThroneCore");
         require(core.waitForStarted(), "Start core");
-        require(server.waitForNewConnection(10000), "Core connection: " + core.readAllStandardError());
+        if (!server.waitForNewConnection(10000)) {
+            QFile errors(temp.filePath("core.stderr"));
+            const auto detail = errors.open(QIODevice::ReadOnly)
+                ? QString::fromUtf8(errors.readAll()) : errors.errorString();
+            require(false, "Core connection: " + detail);
+        }
         API::Client client;
         API::defaultClient = &client;
         client.Reconnect(server.nextPendingConnection());
