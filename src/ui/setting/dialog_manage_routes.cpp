@@ -502,7 +502,7 @@ DialogManageRoutes::DialogManageRoutes(QWidget *parent) : QDialog(parent), ui(ne
     });
 
     ui->enable_warp->setChecked(Configs::dataManager->settingsRepo->enable_warp);
-    ui->warp_mode->setCurrentIndex(Configs::dataManager->settingsRepo->warp_mode == "masque" ? 1 : 0);
+    ui->warp_mode->setCurrentIndex(Configs::dataManager->settingsRepo->warp_mode == "masque" ? 1 : Configs::dataManager->settingsRepo->warp_mode == "amnezia" ? 2 : 0);
     ui->warp_private_key->setText(Configs::dataManager->settingsRepo->warp_private_key);
     ui->warp_public_key->setText(Configs::dataManager->settingsRepo->warp_public_key);
     ui->warp_ifc_addrs->setText(Configs::dataManager->settingsRepo->warp_ifc_addrs.join(","));
@@ -515,7 +515,7 @@ DialogManageRoutes::DialogManageRoutes(QWidget *parent) : QDialog(parent), ui(ne
     ui->warp_masque_sni->setText(Configs::dataManager->settingsRepo->warp_masque_sni);
     ui->warp_masque_http_mode->setCurrentIndex(std::clamp(Configs::dataManager->settingsRepo->warp_masque_http_mode, 0, 2));
     auto showWarpMode = [this](int index) {
-        UiMode::SetVisible(ui->warp_wg_box, index == 0);
+        UiMode::SetVisible(ui->warp_wg_box, index != 1);
         UiMode::SetVisible(ui->warp_masque_box, index == 1);
     };
     showWarpMode(ui->warp_mode->currentIndex());
@@ -691,7 +691,8 @@ void DialogManageRoutes::accept() {
     Configs::dataManager->settingsRepo->warp_private_key = ui->warp_private_key->text().trimmed();
     Configs::dataManager->settingsRepo->warp_public_key = ui->warp_public_key->text().trimmed();
     Configs::dataManager->settingsRepo->warp_reserved = SplitAndTrim(ui->warp_reserved->text(), ",", false);
-    Configs::dataManager->settingsRepo->warp_mode = ui->warp_mode->currentIndex() == 1 ? "masque" : "wireguard";
+    Configs::dataManager->settingsRepo->warp_mode = ui->warp_mode->currentIndex() == 1 ? "masque"
+        : ui->warp_mode->currentIndex() == 2 ? "amnezia" : "wireguard";
     Configs::dataManager->settingsRepo->warp_masque_ep = ui->warp_masque_ep->text().trimmed();
     Configs::dataManager->settingsRepo->warp_masque_private_key = ui->warp_masque_private_key->text().trimmed();
     Configs::dataManager->settingsRepo->warp_masque_peer_public_key = ui->warp_masque_peer_public_key->text().trimmed();

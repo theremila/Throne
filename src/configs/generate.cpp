@@ -1,4 +1,5 @@
 #include "include/configs/generate.h"
+#include "include/configs/sub/warp.h"
 #include "include/api/RPC.h"
 #include "include/configs/AutoSelectorPlan.h"
 #include "include/configs/common/utils.h"
@@ -197,6 +198,7 @@ namespace Configs {
             osType os = getOS();
 
             QString error;
+            std::shared_ptr<Profile> warpProfile;
             QJsonArray outbounds;
             QJsonArray endpoints;
             QJsonArray xrayOutbounds;
@@ -637,7 +639,7 @@ namespace Configs {
             if (const auto parsed = portText.toInt(); parsed > 0 && parsed <= 65535) port = parsed;
         }
 
-        std::shared_ptr<Profile> getWarpProfile() {
+        std::shared_ptr<Profile> getWarpIdentityProfile() {
             const auto &settings = *dataManager->settingsRepo;
             auto warpProfile = std::make_shared<Profile>();
             warpProfile->name = "warp";
@@ -683,8 +685,35 @@ namespace Configs {
             outbound->peer = peer;
             outbound->mtu = 1280;
 
+            if (settings.warp_mode == "amnezia") {
+                outbound->enable_amnezia = true;
+                outbound->jc = 4;
+                outbound->jmin = 40;
+                outbound->jmax = 70;
+                // Cloudflare expects the standard WireGuard headers.
+                outbound->h1 = "1";
+                outbound->h2 = "2";
+                outbound->h3 = "3";
+                outbound->h4 = "4";
+            }
+
             warpProfile->outbound = outbound;
             return warpProfile;
+        }
+
+        std::shared_ptr<Profile> getWarpProfile(BuildContext &ctx) {
+            if (ctx.warpProfile) return ctx.warpProfile;
+            auto profile = getWarpIdentityProfile();
+            if (dataManager->settingsRepo->warp_mode == "amnezia") {
+                const auto packets = Configs_network::GenerateWarpCamouflage(ctx.error);
+                if (!ctx.error.isEmpty()) return nullptr;
+                auto *outbound = profile->Wireguard();
+                const QList<QString *> fields = {&outbound->i1, &outbound->i2, &outbound->i3, &outbound->i4, &outbound->i5};
+                for (qsizetype i = 0; i < fields.size(); ++i)
+                    *fields[i] = i < packets.size() ? packets[i] : QString();
+            }
+            ctx.warpProfile = profile;
+            return profile;
         }
 
         // ------------------------------------------------------- prerequisites
@@ -1465,7 +1494,12 @@ namespace Configs {
                         scan.coreTransitions++;
                     }
                     inXray = false;
-                    ents.append(getWarpProfile());
+                    const auto warp = getWarpProfile(ctx);
+                    if (!warp) {
+                        error = ctx.error;
+                        return;
+                    }
+                    ents.append(warp);
                     continue;
                 }
                 auto ent = getProfile(id);
@@ -2040,7 +2074,8 @@ namespace Configs {
         // The group already holds warp-bypass, so warp itself is emitted here as "proxy" and points at it.
         void buildWarpInFrontOfSelector(BuildContext &ctx)
         {
-            auto warpEnt = getWarpProfile();
+            auto warpEnt = getWarpProfile(ctx);
+            if (!warpEnt) return;
             auto [warpObject, warpError] = warpEnt->outbound->Build();
             if (!warpError.isEmpty())
             {
@@ -2573,7 +2608,7 @@ namespace Configs {
         }
 
         std::shared_ptr<Profile> scanChainHop(int id) {
-            return id == warpProfileID ? getWarpProfile() : getProfile(id);
+            return id == warpProfileID ? getWarpIdentityProfile() : getProfile(id);
         }
 
         QString scanCloneBlocker(const std::shared_ptr<Profile> &profile) {
